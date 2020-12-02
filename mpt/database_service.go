@@ -2,7 +2,6 @@ package mpt
 
 import (
 	"ethereum-practice/mpt/database"
-	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"io"
 	"sync"
@@ -41,26 +40,28 @@ type Database struct {
 	lock sync.RWMutex
 }
 
-//func NewDatabase(diskdb KeyValueStore) *Database {
-//	return &Database{diskdb:diskdb}
-//}
-
 func NewDatabase() *Database {
 	return &Database{diskdb:database.NewMemoryDatabase()}
 }
 
 // 根据hashed key取，无缓存情况下非常直接
-func (db *Database) resovleHash(hash common.Hash) node {
-	encoded, err := db.diskdb.Get(hash[:])
-	if err != nil || encoded == nil {
+func (db *Database) resolveHash(hash common.Hash) node {
+	n, err := resolveHash(db, hash, nil)
+	if err != nil {
 		return nil
 	}
-
-	n, err := decodeNode(hash[:], encoded)
-	if err != nil {
-		panic(fmt.Sprintf("node %x: %v", hash, err))
-	}
 	return n
+
+	//encoded, err := db.diskdb.Get(hash[:])
+	//if err != nil || encoded == nil {
+	//	return nil
+	//}
+	//
+	//n, err := decodeNode(hash[:], encoded)
+	//if err != nil {
+	//	panic(fmt.Sprintf("node %x: %v", hash, err))
+	//}
+	//return n
 }
 
 
