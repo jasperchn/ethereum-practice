@@ -24,6 +24,8 @@ func TestEqual(t *testing.T) {
 
 	fmt.Println(bytes.Equal(a, b))
 
+
+	//fmt.Println(append(nil,1,2,3))
 }
 
 

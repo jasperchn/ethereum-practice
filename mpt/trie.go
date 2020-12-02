@@ -10,6 +10,7 @@ package mpt
 */
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -59,8 +60,8 @@ Get:
 	1.GetValue, getValueByHex, 根据键值查找相应的value；
 	2.GetNode, getNodeByHex, 根据键值查找相应的node，然后返回rlp编码的整个节点
 Update:
-
-Delete
+	Insert
+	Delete
 
 Commit/Hash（遍历，编码，sha3，保存）
 
@@ -124,3 +125,72 @@ func (t *Mpt) GetNode(hpeKey []byte) []byte {
 func (t *Mpt) getNodeByHex(root node, hexKey []byte, keyBias int) (n node, newRoot node, resolved int, err error) {
 	panic("not implemented")
 }
+
+//
+func (t *Mpt) Insert(key, value []byte) error {
+	hexKey := key2hex(key)
+	if len(value) != 0 {
+		_, root, err := t.insert(t.root, valueNode(value), hexKey, nil)
+		if err != nil {return err}
+		t.root = root
+	}
+	return nil
+}
+
+// 输入参数
+// root:递归查找插入位置的起始节点；value：待插入的数据；key：还未处理的键值；prefix为已处理的key
+// 输出参数
+// isChanged:该节点是否有变化（与缓存有关，不做缓存其实用不到）；rn：更新后的节点
+func (t *Mpt) insert(root, value node, hexKey, prefix []byte) (isChanged bool, rn node, err error) {
+	// 递归终止条件，找到合适位置，插入
+	if len(hexKey) == 0 {
+		if val, ok := root.(valueNode); ok {
+			return !bytes.Equal(val, value.(valueNode)), value, nil
+		}
+		return true, value, nil
+	}
+	switch nRoot := root.(type) {
+	case *branchNode:
+		isChanged, rn, err := t.insert(nRoot.Children[hexKey[0]], value, hexKey[1:], append(prefix, hexKey[0]))
+		if !isChanged || err != nil {return false, rn, err}
+		// 刷新当前节点，子树插入新元素，hash值会变（如果有缓存的话）
+		nRoot = nRoot.copy()
+		nRoot.status = nodeStatus{dirty: true}
+		nRoot.Children[hexKey[0]] = rn
+		return true, nRoot, nil
+	case *shortNode:
+		matchedLength := commonKeyLength(hexKey, nRoot.Key)
+		// key完全匹配上
+		if matchedLength == len(nRoot.Key) {
+			isChanged, rn, err = t.insert(nRoot.Value, value, hexKey[matchedLength:], append(prefix, hexKey[:matchedLength]...))
+			if !isChanged || err != nil {
+				return false, rn, err
+			}
+			return true, &shortNode{nRoot.Key, rn, nodeStatus{dirty:true}}, nil
+		}
+		// key没有完全匹配上，在matchedLength分开，此时需要把shortNode分裂成二叉树，数据结构变成branchNode
+		var err error
+		branch := &branchNode{status:nodeStatus{dirty:true}}
+		// 原节点
+		_, branch.Children[nRoot.Key[matchedLength]], err = t.insert(nil, nRoot.Value, nRoot.Key[matchedLength+1:], append(prefix, nRoot.Key[:matchedLength+1]...))
+		if err != nil {return false, nil, err}
+		// 新节点插入
+		_, branch.Children[hexKey[matchedLength]], err = t.insert(nil, value, hexKey[matchedLength+1:], append(prefix, hexKey[:matchedLength+1]...))
+		// 用新的branchNode替换掉shortNode；如果key完全不重合，就是一个branchNode，否则需要增加一个拓展节点表示公共部分
+		if matchedLength == 0 {return true, branch, nil}
+		return true, &shortNode{hexKey[:matchedLength], branch, nodeStatus{dirty:true}}, nil
+	case hashedNode:
+		decodedNode, err := t.resolveHashedNode(nRoot, prefix)
+		if err != nil {return false, nil, err}
+		isChanged, rn, err := t.insert(decodedNode, value, hexKey, prefix)
+		if !isChanged || err != nil {
+			return false, rn, err
+		}
+		return true, rn, nil
+	case nil:
+		return true, &shortNode{hexKey, value, nodeStatus{dirty:true}}, nil
+	default:
+		panic(fmt.Sprintf("errors occurs when processing node: %v", root))
+	}
+}
+
