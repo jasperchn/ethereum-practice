@@ -65,7 +65,6 @@ type(
 	valueNode	[]byte
 )
 
-
 // 找出公共前缀长度
 func commonKeyLength(a []byte, b[]byte) int {
 	var minLength = len(a)

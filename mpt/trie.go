@@ -250,18 +250,16 @@ func (t *Mpt) delete(root node, prefix, hexKey []byte) (isChanged bool, rn node,
 			} else {
 				childNode = nRoot.Children[loc]
 			}
-
 			// 如果子节点是shortNode，相当于把子节点向上提一层
 			if childNode, ok := childNode.(*shortNode); ok {
 				newKey := append([]byte{byte(loc)}, childNode.Key...)
 				return true, &shortNode{newKey, childNode.Value, nodeStatus{dirty: true}}, nil
-			} else {           // 如果子节点是其他类型，todo check this branch
+			} else {           							// 如果子节点是其他类型，todo check this branch
 				return true, &shortNode{[]byte{byte(loc)}, nRoot.Children[loc], nodeStatus{dirty: true}}, nil
 			}
-
-		} else if loc == 16 { // 变成叶子节点
+		} else if loc == 16 { 						// 变成叶子节点
 			return true, &shortNode{[]byte{byte(loc)}, nRoot.Children[loc], nodeStatus{dirty: true}}, nil
-		} else { // 2个及以上，保留原结构
+		} else { 									// 2个及以上，保留原结构
 			return true, nRoot, nil
 		}
 	case *shortNode:
