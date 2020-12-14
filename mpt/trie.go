@@ -255,7 +255,7 @@ func (t *Mpt) delete(root node, prefix, hexKey []byte) (isChanged bool, rn node,
 			if childNode, ok := childNode.(*shortNode); ok {
 				newKey := append([]byte{byte(loc)}, childNode.Key...)
 				return true, &shortNode{newKey, childNode.Value, nodeStatus{dirty: true}}, nil
-			} else {           // 如果子节点是其他类型
+			} else {           // 如果子节点是其他类型，todo check this branch
 				return true, &shortNode{[]byte{byte(loc)}, nRoot.Children[loc], nodeStatus{dirty: true}}, nil
 			}
 
