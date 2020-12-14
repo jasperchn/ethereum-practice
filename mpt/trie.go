@@ -195,10 +195,16 @@ func (t *Mpt) insert(root, value node, hexKey, prefix []byte) (isChanged bool, r
 }
 
 // 删除
+// key为raw key
 func (t *Mpt) Delete(key []byte) error {
+	hexKey := key2hex(key)
+	_, root, err := t.delete(t.root, nil, hexKey)
+	if err != nil { return err }
+	// 更新根节点
+	t.root = root
+	// 不报错就算成功
 	return nil
 }
-
 
 func concat(s1, s2 []byte) []byte {
 	re := make([]byte, len(s1) + len(s2))
@@ -206,7 +212,6 @@ func concat(s1, s2 []byte) []byte {
 	copy(re[len(s1):], s2)
 	return re
 }
-
 
 // 输入参数
 // root递归起始的根节点，prefix已处理过的键值，hexKey还未处理的键值
@@ -298,4 +303,4 @@ func (t *Mpt) delete(root node, prefix, hexKey []byte) (isChanged bool, rn node,
 	}
 }
 
-
+// todo 计算Hash值
