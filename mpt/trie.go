@@ -194,3 +194,110 @@ func (t *Mpt) insert(root, value node, hexKey, prefix []byte) (isChanged bool, r
 	}
 }
 
+// 删除
+func (t *Mpt) Delete(key []byte) error {
+	return nil
+}
+
+
+func concat(s1, s2 []byte) []byte {
+	re := make([]byte, len(s1) + len(s2))
+	copy(re, s1)
+	copy(re[len(s1):], s2)
+	return re
+}
+
+
+// 输入参数
+// root递归起始的根节点，prefix已处理过的键值，hexKey还未处理的键值
+// 输出参数
+// isChanged表示树是否有变动，rn为新的根节点
+func (t *Mpt) delete(root node, prefix, hexKey []byte) (isChanged bool, rn node, err error) {
+	switch nRoot := root.(type) {
+	case *branchNode:
+		isChanged, rn, err := t.delete(nRoot.Children[hexKey[0]], append(prefix, hexKey[0]), hexKey[1:])
+		// 未修改/出错
+		if !isChanged || err != nil {
+			return false, rn, err
+		}
+		// 成功修改，更新当前根节点
+		nRoot = nRoot.copy()
+		nRoot.status = nodeStatus{dirty: true}
+		nRoot.Children[hexKey[0]] = rn
+		// branchNode理论上是16叉树，如果删除把子节点干掉只剩一个，就需要调整树的结构了
+		// 首先要确定到底有几个子节点，如果只有一个，它的位置又是多少
+		// -10：16个节点全满；-2：有2个及以上的非空节点；正数[0,15]：仅剩一个非空节点；正数16：16个节点都是空的，但value非空
+		loc := -10
+		for i, child := range &nRoot.Children {
+			if nil != child {
+				if loc == -10 {
+					loc = i
+				} else {
+					loc = -2
+				}
+			}
+		}
+
+		if loc >= 0 && loc < 16 { // 删除后只剩下一个节点，需要调整结构
+			// 如果子节点是hashedNode还需要到数据库中读取
+			var childNode node
+			if hashedRoot, ok := nRoot.Children[loc].(hashedNode); ok {
+				cn, err := t.resolveHashedNode(hashedRoot, prefix)
+				if err != nil {
+					return false, nil, err
+				}
+				childNode = cn
+			} else {
+				childNode = nRoot.Children[loc]
+			}
+
+			// 如果子节点是shortNode，相当于把子节点向上提一层
+			if childNode, ok := childNode.(*shortNode); ok {
+				newKey := append([]byte{byte(loc)}, childNode.Key...)
+				return true, &shortNode{newKey, childNode.Value, nodeStatus{dirty: true}}, nil
+			} else {           // 如果子节点是其他类型
+				return true, &shortNode{[]byte{byte(loc)}, nRoot.Children[loc], nodeStatus{dirty: true}}, nil
+			}
+
+		} else if loc == 16 { // 变成叶子节点
+			return true, &shortNode{[]byte{byte(loc)}, nRoot.Children[loc], nodeStatus{dirty: true}}, nil
+		} else { // 2个及以上，保留原结构
+			return true, nRoot, nil
+		}
+	case *shortNode:
+		matchedLength := commonKeyLength(hexKey, nRoot.Key)
+		if matchedLength < len(nRoot.Key) {
+			return false, nRoot, nil
+		}
+		if matchedLength == len(hexKey) {
+			return true, nil, nil
+		}
+		// 以value为根节点删除，rn是删除动作处理完之后的根节点，它要替代value
+		isChanged, rn, err := t.delete(nRoot.Value, append(prefix, hexKey[:len(nRoot.Key)]...), hexKey[len(nRoot.Key):])
+		if !isChanged || err != nil {
+			return false, nRoot, err
+		}
+		// 根据删除后子节点的类型决定如何调整树结构
+		switch rn := rn.(type) {
+		// 向上收缩
+		case *shortNode:
+			return true, &shortNode{concat(nRoot.Key, rn.Key), rn.Value, nodeStatus{dirty: true}}, nil
+		default:
+			return true, &shortNode{nRoot.Key, rn, nodeStatus{dirty:true}}, nil
+		}
+	case valueNode:
+		return true, nil, nil
+	case hashedNode:
+		currentNode, err := t.resolveHashedNode(nRoot, prefix)
+		if err != nil {return false, nil, err}
+		isChanged, rn, err := t.delete(currentNode, prefix, hexKey)
+		if !isChanged || err != nil {return false, rn, err}
+		return true, rn, nil
+	case nil:
+		return false, nil, nil
+	default:
+		panic(fmt.Sprintf("errors occurs when processing node: %v", root))
+	}
+}
+
+
